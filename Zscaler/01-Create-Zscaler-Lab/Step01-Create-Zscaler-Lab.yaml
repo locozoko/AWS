@@ -3,20 +3,26 @@ Description: This template creates a TGW lab environment with VMs.
 
   This is a modified/simplified version of the template which can be found at
   https://aws.amazon.com/blogs/networking-and-content-delivery/creating-a-single-internet-exit-point-from-multiple-vpcs-using-aws-transit-gateway/
-
+Metadata:
+  LICENSE: 'Apache License, Version 2.0'
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Zsclaer Lab Configuration
+        Parameters:
+          - MyKeyPair
+    ParameterLabels:
+      MyKeyPair:
+        default: Lab Access KeyPair
 
 Parameters:
-
+  MyKeyPair:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 Instance Access KeyPair
   MyIP:
     Description: Change to your source IP to access Bastion
     Type: String
     Default: '0.0.0.0/0'
-
-  MyKeyPair:
-    Description: Change to your keypair to use for EC2 instances
-    Type: String
-    Default: 'zoltan-personal-aws'
-
 
 Resources:
 
@@ -432,11 +438,11 @@ Resources:
           FromPort: -1
           ToPort: -1
           CidrIp: 192.168.0.0/16
-        - IpProtocol: http
+        - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
           CidrIp: 10.0.0.0/8
-        - IpProtocol: http
+        - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
           CidrIp: 192.168.0.0/16
@@ -495,11 +501,11 @@ Resources:
           FromPort: -1
           ToPort: -1
           CidrIp: 192.168.0.0/16
-        - IpProtocol: http
+        - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
           CidrIp: 10.0.0.0/8
-        - IpProtocol: http
+        - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
           CidrIp: 192.168.0.0/16
