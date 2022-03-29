@@ -44,6 +44,23 @@ Metadata:
       MyVpcId:
         default: "VPC to Use"
 
+Mappings:
+  ZPAConnectorImage: 
+    us-east-1: 
+      AMI: ami-0a4f37f28d2991d7b
+    us-east-2: 
+      AMI: ami-0246c9413289cb8b9
+    us-west-1: 
+      AMI: ami-0040497a9c1dbb6bc
+    us-west-2: 
+      AMI: ami-029d053878db57655
+    ca-central-1: 
+      AMI: ami-0403fb7cf5cf707cc
+    eu-central-1: 
+      AMI: ami-0f7a870a15c3582f3
+    ap-northeast-1: 
+      AMI: ami-0e75f63b289a9587a
+
 Parameters:
 
   MyIp:
@@ -62,17 +79,23 @@ Parameters:
     ConstraintDescription: As copied from ZPA UI - do not add extra characters or double quotes!
 
   MyImageId:
-    Description: The ZPA App Connector AMI ID for your region
+    AllowedValues:
+      - us-east-1
+      - us-east-2
+      - us-west-1
+      - us-west-2
+      - ca-central-1
+      - eu-central-1
+      - ap-northeast-1
+    Default: us-east-1
+    Description: The Region to deploy the ZPA App Connector (mapped to regional AMI)
     Type: String
-    Default: 'ami-0402d690ea9b86696'
-    ConstraintDescription: Must be valid for your region!
 
   MyInstanceType:
     Description: The EC2 instance size to use as recommended on Zscaler Help page
     Type: String
-    Default: t3a.small
+    Default: t3a.medium
     AllowedValues:
-      - t3a.small
       - t3a.medium
       - t3a.large
       - m5a.xlarge
@@ -107,7 +130,7 @@ Resources:
   AppConnEC2Instance:
     Type: "AWS::EC2::Instance"
     Properties:
-      ImageId: !Ref MyImageId
+      ImageId: !FindInMap [ZPAConnectorImage, !Ref 'AWS::Region', AMI]
       InstanceType: !Ref MyInstanceType
       KeyName: !Ref MyKeypair
       NetworkInterfaces:
