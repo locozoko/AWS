@@ -49,7 +49,7 @@ Parameters:
   MyIp:
     Description: Your source IP for SSH access (EC2 external IP configured will display in Outputs section)
     Type: String
-    Default: '12.34.56.78/32'
+    Default: '0.0.0.0/0'
     ConstraintDescription: Must be external source IP used for SSH (could use 'curl https://api.myip.com')!
 
   MyKeypair:
@@ -70,8 +70,11 @@ Parameters:
   MyInstanceType:
     Description: The EC2 instance size to use as recommended on Zscaler Help page
     Type: String
-    Default: m5a.xlarge
+    Default: t3a.small
     AllowedValues:
+      - t3a.small
+      - t3a.medium
+      - t3a.large
       - m5a.xlarge
       - t3a.xlarge
 
