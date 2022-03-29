@@ -7,8 +7,6 @@ Automated deployment options to install a ZPA App Connector in AWS.
 File | Description
 ------------ | -------------
 [**AppConnCFT.yaml**](https://github.com/zscaler-bd-sa/AWS/blob/main/Zscaler/App-Connector-AWS/AppConnCFT.yaml) | CloudFormation Template to install App Connector in AWS via GUI
-[**AppConnCFT-CLI.yaml**](https://github.com/zscaler-bd-sa/AWS/blob/main/Zscaler/App-Connector-AWS/AppConnCFT-CLI.yaml) | CloudFormation Template to install App Connector in AWS via CLI
-[**AppConnTF.tf**](https://github.com/zscaler-bd-sa/AWS/blob/main/Zscaler/App-Connector-AWS/AppConnTF.tf) | Terraform script to install App Connector in AWS cia CLI
 
 ## Installing
 
@@ -18,14 +16,6 @@ The examples in this directory allow you to automate the installation of a ZPA A
 
 * AppConnCFT.yaml
   - Simple example meant to be installed via the AWS UI. Allows inputting all parameters including the source IP to allow connecting via SSH, the KeyPair to use, the ZPA Provisioning Key, the AMI ID, the instance type, and the VPC/Subnet to use.
-  - Installs a ZPA App Connector in AWS with an external IP address assigned and a new Security Group allowing SSH access to it. The external IP assigned is output upon the completion of each file running.
-
-* AppConnCFT-CLI.yaml
-  - Simple example meant to be installed via the AWS CLI. All parameters including the source IP to allow connecting via SSH, the KeyPair to use, the ZPA Provisioning Key, the AMI ID, the instance type, and the VPC/Subnet to use must be input in the file before running.
-  - Installs a ZPA App Connector in AWS with an external IP address assigned and a new Security Group allowing SSH access to it. The external IP assigned is output upon the completion of each file running.
-
-* AppConnTF.tf
-  - Simple example meant to be installed via the Terraform CLI. All parameters including the source IP to allow connecting via SSH, the KeyPair to use, the ZPA Provisioning Key, the AMI ID, the instance type, and the VPC/Subnet to use must be input in the file before running.
   - Installs a ZPA App Connector in AWS with an external IP address assigned and a new Security Group allowing SSH access to it. The external IP assigned is output upon the completion of each file running.
 
 ## Support and reporting issues

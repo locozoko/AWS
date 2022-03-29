@@ -1,0 +1,263 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: ZPA App Connector sample template
+
+  This template is designed to be used interactively within the AWS portal
+  using either Designer or 'Create stack'. It creates an external IP and a
+  unique Security Group to allow SSH access to the App Connector. It will
+  prompt for your external IP address to use to restrict SSH access. The
+  external IP associated is not elastic so it will change if the instance
+  is restarted.
+
+Metadata:
+
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Access Configuration"
+        Parameters:
+          - MyIp
+          - MyKeypair
+          - MyImageId
+          - MyInstanceType
+      -
+        Label:
+          default: "App1-VPC ZPA App Connector"
+        Parameters:
+          - MyProvisioningKey
+          - MyVpcId
+          - MySubnetId
+      -
+        Label:
+          default: "App2-VPC ZPA App Connector"
+        Parameters:
+          - MyProvisioningKey2
+          - MyVpcId2
+          - MySubnetId2
+  
+    ParameterLabels:
+      MyIp:
+        default: "IP Address"
+      MyKeypair:
+        default: "Keypair"
+      MyImageId:
+        default: "App Connector Image"
+      MyInstanceType:
+        default: "Instance Type"
+      MyProvisioningKey:
+        default: "Provisioning Key"
+      MyVpcId:
+        default: "VPC"
+      MySubnetId:
+        default: "Subnet"
+      MyProvisioningKey2:
+        default: "Provisioning Key"
+      MyVpcId2:
+        default: "VPC"
+      MySubnetId2:
+        default: "Subet"
+
+Mappings:
+  ZPAConnectorImage: 
+    us-east-1: 
+      AMI: ami-0a4f37f28d2991d7b
+    us-east-2: 
+      AMI: ami-0246c9413289cb8b9
+    us-west-1: 
+      AMI: ami-0040497a9c1dbb6bc
+    us-west-2: 
+      AMI: ami-029d053878db57655
+    ca-central-1: 
+      AMI: ami-0403fb7cf5cf707cc
+    eu-central-1: 
+      AMI: ami-0f7a870a15c3582f3
+    ap-northeast-1: 
+      AMI: ami-0e75f63b289a9587a
+
+Parameters:
+
+  MyIp:
+    Description: Your source IP for SSH access (EC2 external IP configured will display in Outputs section)
+    Type: String
+    Default: '0.0.0.0/0'
+    ConstraintDescription: Must be external source IP used for SSH (could use 'curl https://api.myip.com')!
+
+  MyKeypair:
+    Description: The existing Keypair to use to authenticate
+    Type: AWS::EC2::KeyPair::KeyName
+
+  MyProvisioningKey:
+    Description: The ZPA provisioning key to use for App1 VPC ZPA Connector
+    Type: String
+    ConstraintDescription: As copied from ZPA UI - do not add extra characters or double quotes!
+
+  MyProvisioningKey2:
+    Description: The ZPA provisioning key to use for App2 VPC ZPA Connector
+    Type: String
+    ConstraintDescription: As copied from ZPA UI - do not add extra characters or double quotes!
+
+  MyImageId:
+    AllowedValues:
+      - us-east-1
+      - us-east-2
+      - us-west-1
+      - us-west-2
+      - ca-central-1
+      - eu-central-1
+      - ap-northeast-1
+    Default: us-east-1
+    Description: The Region to deploy the ZPA App Connector (mapped to regional AMI)
+    Type: String
+
+  MyInstanceType:
+    Description: The EC2 instance size to use as recommended on Zscaler Help page
+    Type: String
+    Default: t3a.medium
+    AllowedValues:
+      - t3a.medium
+      - t3a.large
+      - m5a.xlarge
+      - t3a.xlarge
+
+  MyVpcId:
+    Description: The VPC ID for App1-VPC to create the Security Group in
+    Type: AWS::EC2::VPC::Id
+    ConstraintDescription: Must be valid with the subnet selected.
+
+  MyVpcId2:
+    Description: The VPC ID for App2-VPC to create the Security Group in
+    Type: AWS::EC2::VPC::Id
+    ConstraintDescription: Must be valid with the subnet selected.
+
+  MySubnetId:
+    Description: The Subnet ID for App1 VPC to install the ZPA App Connector
+    Type: AWS::EC2::Subnet::Id
+    ConstraintDescription: Must be valid with the VPC selected.
+
+  MySubnetId2:
+    Description: The Subnet ID  for App2 VPC to install the App Connector in
+    Type: AWS::EC2::Subnet::Id
+    ConstraintDescription: Must be valid with the VPC selected.
+
+Resources:
+
+  AppConnSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allows SSH Only
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref MyIp
+      Tags:
+        - Key: "Name"
+          Value: "ZPA App Connector App1-VPC SG"
+      VpcId: !Ref MyVpcId
+
+  AppConnSecurityGroup2:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allows SSH Only
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref MyIp
+      Tags:
+        - Key: "Name"
+          Value: "ZPA App Connector App2-VPC SG"
+      VpcId: !Ref MyVpcId2
+
+  AppConnEC2Instance:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      ImageId: !FindInMap [ZPAConnectorImage, !Ref 'AWS::Region', AMI]
+      InstanceType: !Ref MyInstanceType
+      KeyName: !Ref MyKeypair
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet:
+          - !Ref AppConnSecurityGroup
+          SubnetId: !Ref MySubnetId
+      Tags:
+         - Key: "Name"
+           Value: "ZPA App Connector App1-VPC"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          #Stop the App Connector service which was auto-started at boot time
+          systemctl stop zpa-connector
+          #Copy App Connector provisioning key from ZPA Admin Portal to a file
+          #The provisioning key must be within between double quotes
+          echo "${MyProvisioningKey}" > /opt/zscaler/var/provision_key
+          #Run a yum update to apply the latest patches
+          yum update -y
+          #Start the App Connector service to enroll it in the ZPA cloud
+          systemctl start zpa-connector
+          #Wait for the App Connector to download the latest build
+          sleep 60
+          #Stop and then start the App Connector to run the latest build
+          systemctl stop zpa-connector
+          systemctl start zpa-connector
+
+  AppConnEC2Instance2:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      ImageId: !FindInMap [ZPAConnectorImage, !Ref 'AWS::Region', AMI]
+      InstanceType: !Ref MyInstanceType
+      KeyName: !Ref MyKeypair
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet:
+          - !Ref AppConnSecurityGroup2
+          SubnetId: !Ref MySubnetId2
+      Tags:
+         - Key: "Name"
+           Value: "ZPA App Connector App2-VPC"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          #Stop the App Connector service which was auto-started at boot time
+          systemctl stop zpa-connector
+          #Copy App Connector provisioning key from ZPA Admin Portal to a file
+          #The provisioning key must be within between double quotes
+          echo "${MyProvisioningKey2}" > /opt/zscaler/var/provision_key
+          #Run a yum update to apply the latest patches
+          yum update -y
+          #Start the App Connector service to enroll it in the ZPA cloud
+          systemctl start zpa-connector
+          #Wait for the App Connector to download the latest build
+          sleep 60
+          #Stop and then start the App Connector to run the latest build
+          systemctl stop zpa-connector
+          systemctl start zpa-connector
+
+Outputs:
+
+  AppConnPublicIP:
+    Description: App Connector App1-VPC Public IP (non Elastic)
+    Value: !GetAtt
+      - AppConnEC2Instance
+      - PublicIp
+
+  AppConnPrivateIP:
+    Description: App Connector App1-VPC  Private IP
+    Value: !GetAtt
+      - AppConnEC2Instance
+      - PrivateIp
+
+  AppConnPublicIP2:
+    Description: App Connector App2-VPC Public IP (non Elastic)
+    Value: !GetAtt
+      - AppConnEC2Instance2
+      - PublicIp
+
+  AppConnPrivateIP2:
+    Description: App Connector App2-VPC Private IP
+    Value: !GetAtt
+      - AppConnEC2Instance2
+      - PrivateIp
