@@ -10,12 +10,12 @@ Parameters:
   MyIP:
     Description: Change to your source IP to access Bastion
     Type: String
-    Default: '165.225.60.63/32'
+    Default: '0.0.0.0/0'
 
   MyKeyPair:
     Description: Change to your keypair to use for EC2 instances
     Type: String
-    Default: 'AWS_Keypair_Ohio'
+    Default: 'zoltan-personal-aws'
 
 
 Resources:
