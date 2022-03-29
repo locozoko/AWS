@@ -393,8 +393,8 @@ Resources:
   BastionEC2Instance:
     Type: "AWS::EC2::Instance"
     Properties:
-      ImageId: ami-074cce78125f09d61
-      InstanceType: t2.large
+      ImageId: ami-0c02fb55956c7d316
+      InstanceType: t3a.nano
       KeyName: !Ref MyKeyPair
       NetworkInterfaces: 
         - AssociatePublicIpAddress: "true"
@@ -440,8 +440,8 @@ Resources:
   App1EC2Instance:
     Type: "AWS::EC2::Instance"
     Properties:
-      ImageId: ami-074cce78125f09d61
-      InstanceType: t2.large
+      ImageId: ami-0c02fb55956c7d316
+      InstanceType: t3a.nano
       KeyName: !Ref MyKeyPair
       NetworkInterfaces: 
         - AssociatePublicIpAddress: "false"
@@ -487,8 +487,8 @@ Resources:
   App2EC2Instance:
     Type: "AWS::EC2::Instance"
     Properties:
-      ImageId: ami-074cce78125f09d61
-      InstanceType: t2.large
+      ImageId: ami-0c02fb55956c7d316
+      InstanceType: t3a.nano
       KeyName: !Ref MyKeyPair
       NetworkInterfaces: 
         - AssociatePublicIpAddress: "false"
