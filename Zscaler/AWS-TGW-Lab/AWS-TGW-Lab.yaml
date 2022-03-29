@@ -414,7 +414,7 @@ Resources:
   App1SecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allows SSH and ICMP from 10.0.0.0/8 and 192.168.0.0/16
+      GroupDescription: Allows SSH Web and ICMP from 10.0.0.0/8 and 192.168.0.0/16
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
@@ -431,6 +431,14 @@ Resources:
         - IpProtocol: icmp
           FromPort: -1
           ToPort: -1
+          CidrIp: 192.168.0.0/16
+        - IpProtocol: http
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 10.0.0.0/8
+        - IpProtocol: http
+          FromPort: 80
+          ToPort: 80
           CidrIp: 192.168.0.0/16
       Tags:
         - Key: "Name"
@@ -486,6 +494,14 @@ Resources:
         - IpProtocol: icmp
           FromPort: -1
           ToPort: -1
+          CidrIp: 192.168.0.0/16
+        - IpProtocol: http
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 10.0.0.0/8
+        - IpProtocol: http
+          FromPort: 80
+          ToPort: 80
           CidrIp: 192.168.0.0/16
       Tags:
         - Key: "Name"
