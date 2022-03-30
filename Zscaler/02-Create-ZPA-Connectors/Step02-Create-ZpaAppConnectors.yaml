@@ -184,7 +184,7 @@ Resources:
           SubnetId: !Ref MySubnetId
       Tags:
          - Key: "Name"
-           Value: "ZPA App Connector App1-VPC"
+           Value: "ZPA App Connector 1"
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
@@ -217,7 +217,7 @@ Resources:
           SubnetId: !Ref MySubnetId2
       Tags:
          - Key: "Name"
-           Value: "ZPA App Connector App2-VPC"
+           Value: "ZPA App Connector 2"
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
