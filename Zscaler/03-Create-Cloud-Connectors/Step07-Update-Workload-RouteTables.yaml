@@ -8,68 +8,53 @@ Metadata:
   'AWS::CloudFormation::Interface':
     ParameterGroups:
       - Label:
-          default: Zsclaer Lab Configuration
+          default: Cloud Connector Lab Route Configuration
         Parameters:
-          - MyKeyPair
+          - CCRouteTable
+          - VpcEndpoint
     ParameterLabels:
-      MyKeyPair:
-        default: Lab Access KeyPair
+      CCRouteTable:
+        default: Egress-Private Route Table
+      VpcEndpoint:
+        default: Gateway Load Balancer (GWLB) VPC Endpoint
 
 Parameters:
-  MyKeyPair:
-    Type: AWS::EC2::KeyPair::KeyName
-    Description: EC2 Instance Access KeyPair
-
+  CCRouteTable:
+    Type: AWS::EC2::RouteTable
+    Description: Select the Route Table to update with the Cloud Connector GWLB default route
+  VpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Description: Select the Route Table to update with the Cloud Connector GWLB default route
 
 Resources:
+  UpdateEgressPrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+       RouteTableId: !Ref CCRouteTable
+       DestinationCidrBlock: 0.0.0.0/0
+       VpcEndpointId: !Ref VpcEndpoint
 
 # egress vpc route table configuration
 
-  EgressCloudConnectorRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref 'EgressVPC'
-      Tags:
-        - Key: Application
-          Value: !Ref 'AWS::StackId'
-        - Key: Name
-          Value: Egress-CloudConnector-RT
-
- EgressCloudConnectorRoute:
-    Type: AWS::EC2::Route
-    DependsOn: AttachIGW
-    Properties:
-      RouteTableId: !Ref 'EgressCloudConnectorRouteTable'
-      DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref 'NATGateway'
-  EgressCloudConnectorRouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref 'EgressVpcCloudConnectorSubnet'
-      RouteTableId: !Ref 'EgressCloudConnectorRouteTable'
-
-
-# Update existing route table
-
-  UpdateEgressPublicRouteTable:
-    Type: AWS::EC2::Route
-    DependsOn: EgressVpcAttachment
-    Properties:
-       RouteTableId: !Ref EgressPublicRouteTable
-       DestinationCidrBlock: 10.0.0.0/8
-       TransitGatewayId: !Ref TransitGateway
-
-
-Outputs:
-
-  BastionIP:
-    Description: Bastion Public IP
-    Value: !GetAtt
-      - BastionEC2Instance
-      - PublicIp
-
-  App1IP:
-    Description: App1 Private IP
-    Value: !GetAtt
-      - App1EC2Instance
-      - PrivateIp
+#  EgressCloudConnectorRouteTable:
+#    Type: AWS::EC2::RouteTable
+#    Properties:
+#      VpcId: !Ref 'EgressVPC'
+#      Tags:
+#        - Key: Application
+#          Value: !Ref 'AWS::StackId'
+#        - Key: Name
+#          Value: Egress-CloudConnector-RT
+#
+# EgressCloudConnectorRoute:
+#    Type: AWS::EC2::Route
+#    DependsOn: AttachIGW
+#    Properties:
+#      RouteTableId: !Ref 'EgressCloudConnectorRouteTable'
+#      DestinationCidrBlock: 0.0.0.0/0
+#      NatGatewayId: !Ref 'NATGateway'
+#  EgressCloudConnectorRouteTableAssociation:
+#    Type: AWS::EC2::SubnetRouteTableAssociation
+#    Properties:
+#      SubnetId: !Ref 'EgressVpcCloudConnectorSubnet'
+#      RouteTableId: !Ref 'EgressCloudConnectorRouteTable'

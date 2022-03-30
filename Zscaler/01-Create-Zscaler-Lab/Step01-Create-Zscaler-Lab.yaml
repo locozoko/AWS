@@ -169,7 +169,7 @@ Resources:
       SubnetId: !Ref 'EgressVpcPrivateSubnet'
       RouteTableId: !Ref 'EgressPrivateRouteTable'
 
- EgressCloudConnectorRoute:
+  EgressCloudConnectorRoute:
     Type: AWS::EC2::Route
     DependsOn: AttachIGW
     Properties:
@@ -525,7 +525,7 @@ Resources:
           systemctl enable httpd.service
           echo "Hello World from $(hostname -f). I am located in the App1-VPC" > /var/www/html/index.html
 
-App1EC2Instance:
+  Windows1EC2Instance:
     Type: "AWS::EC2::Instance"
     Properties:
       ImageId: ami-0f9a92942448ac56f
@@ -612,7 +612,7 @@ App1EC2Instance:
           systemctl enable httpd.service
           echo "Hello World from $(hostname -f). I am located in the App2-VPC" > /var/www/html/index.html
 
-App2EC2Instance:
+  Windows2EC2Instance:
     Type: "AWS::EC2::Instance"
     Properties:
       ImageId: ami-0f9a92942448ac56f
