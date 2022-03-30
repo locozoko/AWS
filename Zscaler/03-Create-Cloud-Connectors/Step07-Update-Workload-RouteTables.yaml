@@ -1,0 +1,75 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates a route, route table and associates it with the Egress-Private subnet to send default route to Cloud Connector.
+
+  This is a modified/simplified version of the template which can be found at
+  https://aws.amazon.com/blogs/networking-and-content-delivery/creating-a-single-internet-exit-point-from-multiple-vpcs-using-aws-transit-gateway/
+Metadata:
+  LICENSE: 'Apache License, Version 2.0'
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Zsclaer Lab Configuration
+        Parameters:
+          - MyKeyPair
+    ParameterLabels:
+      MyKeyPair:
+        default: Lab Access KeyPair
+
+Parameters:
+  MyKeyPair:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 Instance Access KeyPair
+
+
+Resources:
+
+# egress vpc route table configuration
+
+  EgressCloudConnectorRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 'EgressVPC'
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: Egress-CloudConnector-RT
+
+ EgressCloudConnectorRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachIGW
+    Properties:
+      RouteTableId: !Ref 'EgressCloudConnectorRouteTable'
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref 'NATGateway'
+  EgressCloudConnectorRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'EgressVpcCloudConnectorSubnet'
+      RouteTableId: !Ref 'EgressCloudConnectorRouteTable'
+
+
+# Update existing route table
+
+  UpdateEgressPublicRouteTable:
+    Type: AWS::EC2::Route
+    DependsOn: EgressVpcAttachment
+    Properties:
+       RouteTableId: !Ref EgressPublicRouteTable
+       DestinationCidrBlock: 10.0.0.0/8
+       TransitGatewayId: !Ref TransitGateway
+
+
+Outputs:
+
+  BastionIP:
+    Description: Bastion Public IP
+    Value: !GetAtt
+      - BastionEC2Instance
+      - PublicIp
+
+  App1IP:
+    Description: App1 Private IP
+    Value: !GetAtt
+      - App1EC2Instance
+      - PrivateIp

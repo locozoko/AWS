@@ -30,7 +30,7 @@ Metadata:
       VPCID:
         default: Egress VPC ID
       CCSubnetID:
-        default: Egress Subnet ID
+        default: Egress Cloud Connector Subnet ID
       CloudConnectorProvUrl:
         default: Cloud Connector Provisioning URL
       SecretManagerSecretName:
@@ -62,7 +62,7 @@ Parameters:
     Description: Availability Zone of the Subnet (select us-east-1a)
     Type: 'AWS::EC2::AvailabilityZone::Name'
   CCSubnetID:
-    Description: ID of the Zscaler CC Subnet (select Egress-Private)
+    Description: ID of the Zscaler CC Subnet (select Egress-CloudConnector)
     Type: 'AWS::EC2::Subnet::Id'
   CloudConnectorProvUrl:
     AllowedPattern: '(admin|connector).zs.*.net(/ec)?/w?api/v1/provUrl\?name=[\w-_]+'
