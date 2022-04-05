@@ -1,0 +1,188 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Creates the Lambda Macros Used by Zscaler Cloud Connector for GWLB Health Checks. This is a prerequisites to running the GWLB creation CFT.
+Resources:
+  ZSCCMacroExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: CustomLambdaEC2DescribePolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                Resource:
+                  - !Sub 'arn:aws:logs:*:${AWS::AccountId}:log-group:/aws/lambda/zscc-macro'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub 'arn:aws:logs:*:${AWS::AccountId}:log-group:*'
+              - Action:
+                  - ec2:AssignPrivateIpAddresses
+                  - ec2:CreateNetworkInterface
+                  - ec2:DeleteNetworkInterface
+                  - ec2:DescribeInstances
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeInstanceAttribute
+                  - ec2:DescribeInstanceTypes
+                  - ec2:DescribeInstanceStatus
+                  - ec2:DescribeRouteTables
+                  - ec2:ReplaceRoute
+                  - ec2:UnassignPrivateIpAddresses
+                  - lambda:InvokeFunction
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Effect: Allow
+                Resource: "*"
+
+  ZSCCMacroFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: zscc-macro
+      Handler: index.lambda_handler
+      Description: Retrieves EC2 Service ENI Properties
+      Timeout: 30
+      Role: !GetAtt
+        - ZSCCMacroExecutionRole
+        - Arn
+      Runtime: python3.7
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import boto3
+          import copy
+          import collections
+          import re
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          # ONE TIME INITS
+          EC2_RESOURCE = boto3.resource('ec2')
+
+
+          def retrieve_eni_properties(event):
+              try:
+                responseData = {"status": "success", "message": 'Retrieved ENI Properties!'}
+                SubnetIds = []
+                Targets = []
+                InstanceTypes = []
+                SubnetsByAZ = collections.defaultdict(list)
+                instances = event.get("templateParameterValues").get("Ec2Instances")
+                for instance_id in instances:
+                  instance = EC2_RESOURCE.Instance(instance_id)
+                  instance_type = instance.instance_type
+                  logger.info(f"Instance: {instance_id}, Type: {instance_type}")
+                  if instance_type not in InstanceTypes:
+                    InstanceTypes.append(instance_type)
+                  eni = [e for e in
+                  instance.network_interfaces_attribute if e.get("Attachment").get("DeviceIndex") == 1][0]
+                  ip = [i.get("PrivateIpAddress") for i in 
+                    eni.get("PrivateIpAddresses") if i.get("Primary") == True][0]
+                  Targets.append({"Id": ip})
+                  subnetId = eni.get("SubnetId")
+                  subnet = EC2_RESOURCE.Subnet(subnetId)
+                  if subnetId not in SubnetIds:
+                    SubnetIds.append(subnetId)
+                    SubnetsByAZ[re.sub("\-", "", subnet.availability_zone)].append(subnetId)
+                  responseData["VPCID"] = eni.get("VpcId")
+                if len(InstanceTypes) > 1:
+                  err = f"All Cloud Connectors should be of the same instance type. Multiple found {InstanceTypes}"
+                  logger.critical(err)
+                  responseData["status"] = "failed"
+                  responseData["message"] = err
+                  # cfnresponse.send(event, context, cfnresponse.FAILED, responseData)
+                  return
+                responseData["Targets"] = Targets
+                responseData['SubnetIds']= SubnetIds
+                responseData["SubnetsByAZ"] = SubnetsByAZ
+                # responseData['LenSubnetIds'] = len(SubnetIds)
+                logger.info('Retrieved ENI Properties!')
+                return responseData
+              except Exception as e:
+                logger.critical(f"Error Occured: {e}")
+
+          def add_required_gwlb_resources(template, responseData):
+              res = {
+                "status": "success",
+                "message": "Template processed successfully"
+              }
+              try:
+                resources = template.get("Resources")
+                outputs = template.get("Outputs")
+                # Resource Keys to touch are
+                # ZSCCGWLBTargetGroup, ZSCCVPCEP, ZSCCGWLB
+                ZSCCGWLBTargetGroup = resources.get("ZSCCGWLBTargetGroup")
+                ZSCCGWLBTargetGroup.get("Properties")["Targets"] = responseData.get("Targets")
+                ZSCCGWLBTargetGroup.get("Properties")["VpcId"] = responseData.get("VPCID")
+                ZSCCGWLB = resources.get("ZSCCGWLB")
+                ZSCCGWLB.get("Properties")["Subnets"] = responseData.get("SubnetIds")
+                ZSCCVPCEPTemplate = resources.pop("ZSCCVPCEP")
+                ZSCCVPCEPOutputTemplate = outputs.pop("ZSCCVPCEP")
+                ZSCCVPCEPTemplate.get("Properties")["VpcId"] = responseData.get("VPCID")
+                for az, subnets in responseData.get("SubnetsByAZ").items():
+                  ep_name = f"ZSCCVPCEP{az}"
+                  ep_resource = copy.deepcopy(ZSCCVPCEPTemplate)
+                  ep_resource.get("Properties")["SubnetIds"] = subnets[:1]
+                  resources[ep_name] = ep_resource
+                  ep_output = copy.deepcopy(ZSCCVPCEPOutputTemplate)
+                  ep_output["Description"] = f"{ep_output['Description']} in {az}"
+                  ep_output["Value"] = {"Ref": ep_name}
+                  outputs[ep_name] = ep_output
+                res["fragment"] = template
+              except Exception as e:
+                logger.critical(f"Error Occured: {e}")
+                res["status"] = "failed"
+                res["message"] = e
+              return res
+
+          def zsccgwlb(event, context):
+              resp = {
+                  "requestId": event.get("requestId")
+                }
+              responseData = retrieve_eni_properties(event)
+              resp.update(responseData)
+              if resp.get("status") == "success":
+                template = event.get("fragment")
+                res = add_required_gwlb_resources(template=template, responseData=responseData)
+                resp.update(res)
+              return resp
+
+          def lambda_handler(event, context):
+              logger.info(json.dumps(event))
+              operation = OPER_MAP.get(event.get("params").get("operation").lower())
+              resp = operation(event, context)
+              logger.info(resp)
+              return resp
+
+          # MAP
+          OPER_MAP = {
+            "zsccgwlb": zsccgwlb
+          }
+
+  ZSCCMacroFunctionPermissions:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt ZSCCMacroFunction.Arn
+      Principal: 'cloudformation.amazonaws.com'
+  ZSCCMacro:
+    Type: AWS::CloudFormation::Macro
+    Properties:
+      Name: 'ZSCC-Macro'
+      Description: Zscaler CC Custom Macro
+      FunctionName: !GetAtt ZSCCMacroFunction.Arn

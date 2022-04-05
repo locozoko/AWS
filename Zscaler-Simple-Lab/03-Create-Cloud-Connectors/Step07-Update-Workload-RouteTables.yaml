@@ -10,29 +10,35 @@ Metadata:
       - Label:
           default: Cloud Connector Lab Route Configuration
         Parameters:
+          - EgressVpc
           - CCRouteTable
           - VpcEndpoint
     ParameterLabels:
+      EgressVpc:
+        default: Egress-VPC
       CCRouteTable:
         default: Egress-Private Route Table
       VpcEndpoint:
         default: Gateway Load Balancer (GWLB) VPC Endpoint
 
 Parameters:
+  EgressVpc:
+    Type: AWS::EC2::VPC::Id
+    Description: Select the Egress VPC
   CCRouteTable:
-    Type: AWS::EC2::RouteTable
-    Description: Select the Route Table to update with the Cloud Connector GWLB default route
+    Type: String
+    Description: Enter the Route Table ID to update with the Cloud Connector GWLB default route
   VpcEndpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Description: Select the Route Table to update with the Cloud Connector GWLB default route
+    Type: String
+    Description: Enter the GWLB Vpc Endpoint ID to update with the Cloud Connector GWLB default route
 
 Resources:
   UpdateEgressPrivateRoute:
     Type: AWS::EC2::Route
     Properties:
-       RouteTableId: !Ref CCRouteTable
-       DestinationCidrBlock: 0.0.0.0/0
-       VpcEndpointId: !Ref VpcEndpoint
+      RouteTableId: !Ref CCRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      VpcEndpointId: !Ref VpcEndpoint
 
 # egress vpc route table configuration
 

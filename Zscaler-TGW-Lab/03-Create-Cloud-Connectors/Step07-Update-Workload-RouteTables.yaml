@@ -1,0 +1,66 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates a route, route table and associates it with the Egress-Private subnet to send default route to Cloud Connector.
+
+  This is a modified/simplified version of the template which can be found at
+  https://aws.amazon.com/blogs/networking-and-content-delivery/creating-a-single-internet-exit-point-from-multiple-vpcs-using-aws-transit-gateway/
+Metadata:
+  LICENSE: 'Apache License, Version 2.0'
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Cloud Connector Lab Route Configuration
+        Parameters:
+          - EgressVpc
+          - CCRouteTable
+          - VpcEndpoint
+    ParameterLabels:
+      EgressVpc:
+        default: Egress-VPC
+      CCRouteTable:
+        default: Egress-Private Route Table
+      VpcEndpoint:
+        default: Gateway Load Balancer (GWLB) VPC Endpoint
+
+Parameters:
+  EgressVpc:
+    Type: AWS::EC2::VPC::Id
+    Description: Select the Egress VPC
+  CCRouteTable:
+    Type: String
+    Description: Enter the Route Table ID to update with the Cloud Connector GWLB default route
+  VpcEndpoint:
+    Type: String
+    Description: Enter the GWLB Vpc Endpoint ID to update with the Cloud Connector GWLB default route
+
+Resources:
+  UpdateEgressPrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref CCRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      VpcEndpointId: !Ref VpcEndpoint
+
+# egress vpc route table configuration
+
+#  EgressCloudConnectorRouteTable:
+#    Type: AWS::EC2::RouteTable
+#    Properties:
+#      VpcId: !Ref 'EgressVPC'
+#      Tags:
+#        - Key: Application
+#          Value: !Ref 'AWS::StackId'
+#        - Key: Name
+#          Value: Egress-CloudConnector-RT
+#
+# EgressCloudConnectorRoute:
+#    Type: AWS::EC2::Route
+#    DependsOn: AttachIGW
+#    Properties:
+#      RouteTableId: !Ref 'EgressCloudConnectorRouteTable'
+#      DestinationCidrBlock: 0.0.0.0/0
+#      NatGatewayId: !Ref 'NATGateway'
+#  EgressCloudConnectorRouteTableAssociation:
+#    Type: AWS::EC2::SubnetRouteTableAssociation
+#    Properties:
+#      SubnetId: !Ref 'EgressVpcCloudConnectorSubnet'
+#      RouteTableId: !Ref 'EgressCloudConnectorRouteTable'
