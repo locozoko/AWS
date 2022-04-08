@@ -1,0 +1,624 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Zscaler Cloud Connector ZPA
+Metadata:
+  LICENSE: 'Apache License, Version 2.0'
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Zscaler Cloud Connector Configuration
+        Parameters:
+          - ZscalerCloudName
+          - ZPACloudName
+          - ServiceENI
+      - Label:
+          default: ZPA Applications
+        Parameters:
+          - Application1DomainName
+          - Application2DomainName
+          - Application3DomainName
+          - Application4DomainName
+          - Application5DomainName
+          - Application6DomainName
+          - Application7DomainName
+          - Application8DomainName
+          - Application9DomainName
+          - Application10DomainName
+    ParameterLabels:
+      ServiceENI:
+        default: ServiceENI ID of Zscaler CC
+      ZscalerCloudName:
+        default: Your Zscaler Cloud Name
+      ZPACloudName:
+        default: Your ZPA Cloud Name
+      Application1DomainName:
+        default: Domain Name for ZPA Application
+      Application2DomainName:
+        default: Domain Name for ZPA Application
+      Application3DomainName:
+        default: Domain Name for ZPA Application
+      Application4DomainName:
+        default: Domain Name for ZPA Application
+      Application5DomainName:
+        default: Domain Name for ZPA Application
+      Application6DomainName:
+        default: Domain Name for ZPA Application
+      Application7DomainName:
+        default: Domain Name for ZPA Application
+      Application8DomainName:
+        default: Domain Name for ZPA Application
+      Application9DomainName:
+        default: Domain Name for ZPA Application
+      Application10DomainName:
+        default: Domain Name for ZPA Application
+  cfn-lint:
+    config:
+      ignore_checks:
+        - E9007
+Parameters:
+  ServiceENI:
+    Description: ID of the Zscaler CC Service ENI (From CC Cloudformation Stack Output)
+    Type: String
+  ZscalerCloudName:
+    Description: Your Zscaler Cloud Name
+    AllowedValues:
+      - ''
+      - zspreview.net
+      - zsdevel.net
+      - zsdemo.net
+      - zscalerbeta.net
+      - zscloud.net
+      - zscaler.net
+      - zscalerone.net
+      - zscalertwo.net
+      - zscalerthree.net
+    Default: zspreview.net
+    Type: String
+  ZPACloudName:
+    Description: Your ZPA Cloud Name
+    AllowedValues:
+      - ''
+      - zpabeta.net
+    Default: zpabeta.net
+    Type: String
+  Application1DomainName:
+    Description: Application Domain Name
+    Type: String
+  Application2DomainName:
+    Description: Application Domain Name
+    Type: String
+  Application3DomainName:
+    Description: Application Domain Name
+    Type: String
+  Application4DomainName:
+    Description: Application Domain Name
+    Type: String
+  Application5DomainName:
+    Description: Application Domain Name
+    Type: String
+  Application6DomainName:
+    Description: Application Domain Name
+    Type: String
+  Application7DomainName:
+    Description: Application Domain Name
+    Type: String
+  Application8DomainName:
+    Description: Application Domain Name
+    Type: String
+  Application9DomainName:
+    Description: Application Domain Name
+    Type: String
+  Application10DomainName:
+    Description: Application Domain Name
+    Type: String
+Conditions:
+  CreateApp1DomainRule: !Not
+    - !Equals
+      - !Ref Application1DomainName
+      - ''
+  CreateApp2DomainRule: !Not
+    - !Equals
+      - !Ref Application2DomainName
+      - ''
+  CreateApp3DomainRule: !Not
+    - !Equals
+      - !Ref Application3DomainName
+      - ''
+  CreateApp4DomainRule: !Not
+    - !Equals
+      - !Ref Application4DomainName
+      - ''
+  CreateApp5DomainRule: !Not
+    - !Equals
+      - !Ref Application5DomainName
+      - ''
+  CreateApp6DomainRule: !Not
+    - !Equals
+      - !Ref Application6DomainName
+      - ''
+  CreateApp7DomainRule: !Not
+    - !Equals
+      - !Ref Application7DomainName
+      - ''
+  CreateApp8DomainRule: !Not
+    - !Equals
+      - !Ref Application8DomainName
+      - ''
+  CreateApp9DomainRule: !Not
+    - !Equals
+      - !Ref Application9DomainName
+      - ''
+  CreateApp10DomainRule: !Not
+    - !Equals
+      - !Ref Application10DomainName
+      - ''
+Resources:
+  LambdaBasicExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: CustomLambdaEC2DescribePolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: 'arn:aws:logs:*:*:*'
+              - Effect: Allow
+                Action:
+                  - 'ec2:DescribeNetworkInterfaces'
+                Resource: '*'
+  CustomServiceENIResource:
+    Type: 'AWS::CloudFormation::CustomResource'
+    Properties:
+      ServiceToken: !GetAtt
+        - CustomFunction
+        - Arn
+      ResourceRef: !Ref ServiceENI
+  CustomFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Handler: index.lambda_handler
+      Description: Retrieves EC2 ENI Properties
+      Timeout: 30
+      Role: !GetAtt
+        - LambdaBasicExecutionRole
+        - Arn
+      Runtime: python3.7
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import cfnresponse
+          import boto3
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def lambda_handler(event, context):
+            logger.info('got event {}'.format(event))
+            try:
+              responseData = {}
+              if event['RequestType'] == 'Delete':
+                logger.info('Incoming RequestType: Delete operation')
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              if event['RequestType'] in ["Create", "Update"]:
+                ResourceRef=event['ResourceProperties']['ResourceRef']
+                client = boto3.client('ec2')
+                response = client.describe_network_interfaces(NetworkInterfaceIds=[ResourceRef])
+                responseData = {}
+                responseData['TargetIp']= response.get('NetworkInterfaces')[0].get('PrivateIpAddresses')[1]['PrivateIpAddress']
+                responseData['VpcId']= response.get('NetworkInterfaces')[0].get('VpcId')
+                responseData['SubnetId']= response.get('NetworkInterfaces')[0].get('SubnetId')
+                logger.info('Retrieved ENI Properties!')
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+              else:
+                logger.info('Unexpected RequestType!')
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+            except Exception as err:
+              logger.error(err)
+              responseData = {"Data": str(err)}
+              cfnresponse.send(event,context,cfnresponse.FAILED,responseData)
+            return
+  AppSegmentResolverSecurityGroup:
+    Description: Create App Segment Resolver Security Group
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      VpcId: !GetAtt
+        - CustomServiceENIResource
+        - VpcId
+      GroupDescription: Enable app segment resolver comm
+      SecurityGroupIngress:
+        - IpProtocol: '-1'
+          FromPort: '0'
+          ToPort: '65535'
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          FromPort: '0'
+          ToPort: '65535'
+          CidrIp: 0.0.0.0/0
+  AppSegmentOutboundResolver:
+    Type: 'AWS::Route53Resolver::ResolverEndpoint'
+    Properties:
+      Direction: Outbound
+      IpAddresses:
+        - SubnetId: !GetAtt
+            - CustomServiceENIResource
+            - SubnetId
+        - SubnetId: !GetAtt
+            - CustomServiceENIResource
+            - SubnetId
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegmentResolver'
+      SecurityGroupIds:
+        - !Ref AppSegmentResolverSecurityGroup
+      Tags:
+        - Key: Function
+          Value: ZSCCAppSegmentResolver
+  AppSegmentResolverDomainRule1:
+    Condition: CreateApp1DomainRule
+    Type: 'AWS::Route53Resolver::ResolverRule'
+    Properties:
+      DomainName: !Ref Application1DomainName
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegment1'
+      ResolverEndpointId: !Ref AppSegmentOutboundResolver
+      RuleType: FORWARD
+      Tags:
+        - Key: Function
+          Value: !Sub '${AWS::StackName}-ZSCCAppSegment1'
+      TargetIps:
+        - Ip: !GetAtt
+            - CustomServiceENIResource
+            - TargetIp
+          Port: '53'
+  AppSegmentResolverDomainRule1Association:
+    Condition: CreateApp1DomainRule
+    Type: 'AWS::Route53Resolver::ResolverRuleAssociation'
+    Properties:
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegment1VPCAssociation'
+      ResolverRuleId: !Ref AppSegmentResolverDomainRule1
+      VPCId: !GetAtt
+        - CustomServiceENIResource
+        - VpcId
+  AppSegmentResolverDomainRule2:
+    Condition: CreateApp2DomainRule
+    Type: 'AWS::Route53Resolver::ResolverRule'
+    Properties:
+      DomainName: !Ref Application2DomainName
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegment2'
+      ResolverEndpointId: !Ref AppSegmentOutboundResolver
+      RuleType: FORWARD
+      Tags:
+        - Key: Function
+          Value: !Sub '${AWS::StackName}-ZSCCAppSegment2'
+      TargetIps:
+        - Ip: !GetAtt
+            - CustomServiceENIResource
+            - TargetIp
+          Port: '53'
+  AppSegmentResolverDomainRule2Association:
+    Condition: CreateApp2DomainRule
+    Type: 'AWS::Route53Resolver::ResolverRuleAssociation'
+    Properties:
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegment2VPCAssociation'
+      ResolverRuleId: !Ref AppSegmentResolverDomainRule2
+      VPCId: !GetAtt
+        - CustomServiceENIResource
+        - VpcId
+  AppSegmentResolverDomainRule3:
+    Condition: CreateApp3DomainRule
+    Type: 'AWS::Route53Resolver::ResolverRule'
+    Properties:
+      DomainName: !Ref Application3DomainName
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegment3'
+      ResolverEndpointId: !Ref AppSegmentOutboundResolver
+      RuleType: FORWARD
+      Tags:
+        - Key: Function
+          Value: !Sub '${AWS::StackName}-ZSCCAppSegment3'
+      TargetIps:
+        - Ip: !GetAtt
+            - CustomServiceENIResource
+            - TargetIp
+          Port: '53'
+  AppSegmentResolverDomainRule3Association:
+    Condition: CreateApp3DomainRule
+    Type: 'AWS::Route53Resolver::ResolverRuleAssociation'
+    Properties:
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegment3VPCAssociation'
+      ResolverRuleId: !Ref AppSegmentResolverDomainRule3
+      VPCId: !GetAtt
+        - CustomServiceENIResource
+        - VpcId
+  AppSegmentResolverDomainRule4:
+    Condition: CreateApp4DomainRule
+    Type: 'AWS::Route53Resolver::ResolverRule'
+    Properties:
+      DomainName: !Ref Application4DomainName
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegment4'
+      ResolverEndpointId: !Ref AppSegmentOutboundResolver
+      RuleType: FORWARD
+      Tags:
+        - Key: Function
+          Value: !Sub '${AWS::StackName}-ZSCCAppSegment4'
+      TargetIps:
+        - Ip: !GetAtt
+            - CustomServiceENIResource
+            - TargetIp
+          Port: '53'
+  AppSegmentResolverDomainRule4Association:
+    Condition: CreateApp4DomainRule
+    Type: 'AWS::Route53Resolver::ResolverRuleAssociation'
+    Properties:
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegment4VPCAssociation'
+      ResolverRuleId: !Ref AppSegmentResolverDomainRule4
+      VPCId: !GetAtt
+        - CustomServiceENIResource
+        - VpcId
+  AppSegmentResolverDomainRule5:
+    Condition: CreateApp5DomainRule
+    Type: 'AWS::Route53Resolver::ResolverRule'
+    Properties:
+      DomainName: !Ref Application5DomainName
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegment5'
+      ResolverEndpointId: !Ref AppSegmentOutboundResolver
+      RuleType: FORWARD
+      Tags:
+        - Key: Function
+          Value: !Sub '${AWS::StackName}-ZSCCAppSegment5'
+      TargetIps:
+        - Ip: !GetAtt
+            - CustomServiceENIResource
+            - TargetIp
+          Port: '53'
+  AppSegmentResolverDomainRule5Association:
+    Condition: CreateApp5DomainRule
+    Type: 'AWS::Route53Resolver::ResolverRuleAssociation'
+    Properties:
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegment5VPCAssociation'
+      ResolverRuleId: !Ref AppSegmentResolverDomainRule5
+      VPCId: !GetAtt
+        - CustomServiceENIResource
+        - VpcId
+  AppSegmentResolverDomainRule6:
+    Condition: CreateApp6DomainRule
+    Type: 'AWS::Route53Resolver::ResolverRule'
+    Properties:
+      DomainName: !Ref Application6DomainName
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegment6'
+      ResolverEndpointId: !Ref AppSegmentOutboundResolver
+      RuleType: FORWARD
+      Tags:
+        - Key: Function
+          Value: !Sub '${AWS::StackName}-ZSCCAppSegment6'
+      TargetIps:
+        - Ip: !GetAtt
+            - CustomServiceENIResource
+            - TargetIp
+          Port: '53'
+  AppSegmentResolverDomainRule6Association:
+    Condition: CreateApp6DomainRule
+    Type: 'AWS::Route53Resolver::ResolverRuleAssociation'
+    Properties:
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegment6VPCAssociation'
+      ResolverRuleId: !Ref AppSegmentResolverDomainRule6
+      VPCId: !GetAtt
+        - CustomServiceENIResource
+        - VpcId
+  AppSegmentResolverDomainRule7:
+    Condition: CreateApp7DomainRule
+    Type: 'AWS::Route53Resolver::ResolverRule'
+    Properties:
+      DomainName: !Ref Application7DomainName
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegment7'
+      ResolverEndpointId: !Ref AppSegmentOutboundResolver
+      RuleType: FORWARD
+      Tags:
+        - Key: Function
+          Value: !Sub '${AWS::StackName}-ZSCCAppSegment7'
+      TargetIps:
+        - Ip: !GetAtt
+            - CustomServiceENIResource
+            - TargetIp
+          Port: '53'
+  AppSegmentResolverDomainRule7Association:
+    Condition: CreateApp7DomainRule
+    Type: 'AWS::Route53Resolver::ResolverRuleAssociation'
+    Properties:
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegment7VPCAssociation'
+      ResolverRuleId: !Ref AppSegmentResolverDomainRule7
+      VPCId: !GetAtt
+        - CustomServiceENIResource
+        - VpcId
+  AppSegmentResolverDomainRule8:
+    Condition: CreateApp8DomainRule
+    Type: 'AWS::Route53Resolver::ResolverRule'
+    Properties:
+      DomainName: !Ref Application8DomainName
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegment8'
+      ResolverEndpointId: !Ref AppSegmentOutboundResolver
+      RuleType: FORWARD
+      Tags:
+        - Key: Function
+          Value: !Sub '${AWS::StackName}-ZSCCAppSegment8'
+      TargetIps:
+        - Ip: !GetAtt
+            - CustomServiceENIResource
+            - TargetIp
+          Port: '53'
+  AppSegmentResolverDomainRule8Association:
+    Condition: CreateApp8DomainRule
+    Type: 'AWS::Route53Resolver::ResolverRuleAssociation'
+    Properties:
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegment8VPCAssociation'
+      ResolverRuleId: !Ref AppSegmentResolverDomainRule8
+      VPCId: !GetAtt
+        - CustomServiceENIResource
+        - VpcId
+  AppSegmentResolverDomainRule9:
+    Condition: CreateApp9DomainRule
+    Type: 'AWS::Route53Resolver::ResolverRule'
+    Properties:
+      DomainName: !Ref Application9DomainName
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegment9'
+      ResolverEndpointId: !Ref AppSegmentOutboundResolver
+      RuleType: FORWARD
+      Tags:
+        - Key: Function
+          Value: !Sub '${AWS::StackName}-ZSCCAppSegment9'
+      TargetIps:
+        - Ip: !GetAtt
+            - CustomServiceENIResource
+            - TargetIp
+          Port: '53'
+  AppSegmentResolverDomainRule9Association:
+    Condition: CreateApp9DomainRule
+    Type: 'AWS::Route53Resolver::ResolverRuleAssociation'
+    Properties:
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegment9VPCAssociation'
+      ResolverRuleId: !Ref AppSegmentResolverDomainRule9
+      VPCId: !GetAtt
+        - CustomServiceENIResource
+        - VpcId
+  AppSegmentResolverDomainRule10:
+    Condition: CreateApp10DomainRule
+    Type: 'AWS::Route53Resolver::ResolverRule'
+    Properties:
+      DomainName: !Ref Application10DomainName
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegment10'
+      ResolverEndpointId: !Ref AppSegmentOutboundResolver
+      RuleType: FORWARD
+      Tags:
+        - Key: Function
+          Value: !Sub '${AWS::StackName}-ZSCCAppSegment10'
+      TargetIps:
+        - Ip: !GetAtt
+            - CustomServiceENIResource
+            - TargetIp
+          Port: '53'
+  AppSegmentResolverDomainRule10Association:
+    Condition: CreateApp10DomainRule
+    Type: 'AWS::Route53Resolver::ResolverRuleAssociation'
+    Properties:
+      Name: !Sub '${AWS::StackName}-ZSCCAppSegment10VPCAssociation'
+      ResolverRuleId: !Ref AppSegmentResolverDomainRule10
+      VPCId: !GetAtt
+        - CustomServiceENIResource
+        - VpcId
+  AppSegmentResolverZSCloudDomainRule:
+    Type: 'AWS::Route53Resolver::ResolverRule'
+    Properties:
+      DomainName: !Ref ZscalerCloudName
+      Name: !Sub '${AWS::StackName}-ZSCloudRule'
+      RuleType: SYSTEM
+      Tags:
+        - Key: Function
+          Value: ZSCloudRule
+  AppSegmentResolverZSCloudDomainRuleAssociation:
+    Type: 'AWS::Route53Resolver::ResolverRuleAssociation'
+    Properties:
+      Name: !Sub '${AWS::StackName}-ZSCloudRuleVPCAssociation'
+      ResolverRuleId: !Ref AppSegmentResolverZSCloudDomainRule
+      VPCId: !GetAtt
+        - CustomServiceENIResource
+        - VpcId
+  AppSegmentResolverZPACloudDomainRule:
+    Type: 'AWS::Route53Resolver::ResolverRule'
+    Properties:
+      DomainName: !Ref ZPACloudName
+      Name: !Sub '${AWS::StackName}-ZPACloudRule'
+      RuleType: SYSTEM
+      Tags:
+        - Key: Function
+          Value: ZPACloudRule
+  AppSegmentResolverZPACloudDomainRuleAssociation:
+    Type: 'AWS::Route53Resolver::ResolverRuleAssociation'
+    Properties:
+      Name: !Sub '${AWS::StackName}-ZPACloudRuleVPCAssociation'
+      ResolverRuleId: !Ref AppSegmentResolverZPACloudDomainRule
+      VPCId: !GetAtt
+        - CustomServiceENIResource
+        - VpcId
+  AppSegmentResolverZScalerComDomainRule:
+    Type: 'AWS::Route53Resolver::ResolverRule'
+    Properties:
+      DomainName: zscaler.com
+      Name: !Sub '${AWS::StackName}-ZScalerComRule'
+      RuleType: SYSTEM
+      Tags:
+        - Key: Function
+          Value: ZScalerComRule
+  AppSegmentResolverZScalerComDomainRuleAssociation:
+    Type: 'AWS::Route53Resolver::ResolverRuleAssociation'
+    Properties:
+      Name: !Sub '${AWS::StackName}-ZScalerComRuleVPCAssociation'
+      ResolverRuleId: !Ref AppSegmentResolverZScalerComDomainRule
+      VPCId: !GetAtt
+        - CustomServiceENIResource
+        - VpcId
+  AppSegmentResolverFreeBSDDomainRule:
+    Type: 'AWS::Route53Resolver::ResolverRule'
+    Properties:
+      DomainName: freebsd.org
+      Name: !Sub '${AWS::StackName}-FreeBSDRule'
+      RuleType: SYSTEM
+      Tags:
+        - Key: Function
+          Value: FreeBSDRule
+  AppSegmentResolverFreeBSDRuleAssociation:
+    Type: 'AWS::Route53Resolver::ResolverRuleAssociation'
+    Properties:
+      Name: !Sub '${AWS::StackName}-FreeBSDRuleVPCAssociation'
+      ResolverRuleId: !Ref AppSegmentResolverFreeBSDDomainRule
+      VPCId: !GetAtt
+        - CustomServiceENIResource
+        - VpcId
+  AppSegmentResolverNtpOrgDomainRule:
+    Type: 'AWS::Route53Resolver::ResolverRule'
+    Properties:
+      DomainName: ntp.org
+      Name: !Sub '${AWS::StackName}-NtpOrgCloudRule'
+      RuleType: SYSTEM
+      Tags:
+        - Key: Function
+          Value: NtpOrgCloudRule
+  AppSegmentResolverNtpOrgDomainRuleAssociation:
+    Type: 'AWS::Route53Resolver::ResolverRuleAssociation'
+    Properties:
+      Name: !Sub '${AWS::StackName}-ZscalerNetCloudRuleVPCAssociation'
+      ResolverRuleId: !Ref AppSegmentResolverNtpOrgDomainRule
+      VPCId: !GetAtt
+        - CustomServiceENIResource
+        - VpcId
+  AppSegmentResolverAmazonAWSRule:
+    Type: 'AWS::Route53Resolver::ResolverRule'
+    Properties:
+      DomainName: amazonaws.com
+      Name: !Sub '${AWS::StackName}-AmazonAWSRule'
+      RuleType: SYSTEM
+      Tags:
+        - Key: Function
+          Value: AmazonAWSRule
+  AppSegmentResolverAmazonAWSRuleAssociation:
+    Type: 'AWS::Route53Resolver::ResolverRuleAssociation'
+    Properties:
+      Name: AmazonAWSRuleVPCAssociation
+      ResolverRuleId: !Ref AppSegmentResolverAmazonAWSRule
+      VPCId: !GetAtt
+        - CustomServiceENIResource
+        - VpcId
+Outputs:
+  OutboundResolver:
+    Description: Outbound Resolver Endpoint
+    Value: !GetAtt
+      - AppSegmentOutboundResolver
+      - ResolverEndpointId

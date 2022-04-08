@@ -1,0 +1,315 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Zscaler Cloud Connector
+Metadata:
+  LICENSE: 'Apache License, Version 2.0'
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Cloud Connector Instance and Route Tables Pairs
+        Parameters:
+          - Ec2InstanceOne
+          - Ec2InstanceOneHttpProbePort
+          - Ec2InstanceOneRouteTables
+          - Ec2InstanceTwo
+          - Ec2InstanceTwoHttpProbePort
+          - Ec2InstanceTwoRouteTables
+      - Label:
+          default: Lambda Deployment Package
+        Parameters:
+          - S3BucketName
+          - S3Key
+    ParameterLabels:
+      Ec2InstanceOne:
+        default: ZS CC instance ID
+      Ec2InstanceOneHttpProbePort:
+        default: ZS CC instance Http Probe Port
+      Ec2InstanceOneRouteTables:
+        default: List of Route Tables with affinity towards this instance
+      Ec2InstanceTwo:
+        default: ZS CC instance ID
+      Ec2InstanceTwoHttpProbePort:
+        default: ZS CC instance Http Probe Port
+      Ec2InstanceTwoRouteTables:
+        default: List of Route Tables with affinity towards this instance
+      S3BucketName:
+        default: S3 Bucket for lambda deployment package
+      S3Key:
+        default: S3 Key for lambda deployment package
+  cfn-lint:
+    config:
+      ignore_checks:
+        - E9007
+Parameters:
+  Ec2InstanceOne:
+    Type: AWS::EC2::Instance::Id
+    Description: AWS EC2 Instance ID for ZS Cloud Connector
+  Ec2InstanceOneHttpProbePort:
+    Type: String
+    Description: The Http Probe Port for ZS Cloud Connector
+  Ec2InstanceOneRouteTables:
+    Type: List<String>
+    Default: None
+    AllowedPattern: (^None$)|(^(rtb\-[0-9a-f]+)(,?rtb\-[0-9a-f]+)*$)
+    ConstraintDescription: "Route Tables field should be a comma separated list of
+    route table Ids or 'None'"
+  Ec2InstanceTwo:
+    Type: AWS::EC2::Instance::Id
+    Description: AWS EC2 Instance ID for ZS Cloud Connector
+  Ec2InstanceTwoHttpProbePort:
+    Type: String
+    Description: The Http Probe Port for ZS Cloud Connector
+  Ec2InstanceTwoRouteTables:
+      Type: List<String>
+      Default: None
+      AllowedPattern: (^None$)|(^(rtb\-[0-9a-f]+)(,?rtb\-[0-9a-f]+)*$)
+      ConstraintDescription: "Route Tables field should be a comma separated list of
+          route table Ids or 'None'"
+  S3BucketName:
+    Type: String
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$
+    Description: AWS S3 Bucket name in this region
+  S3Key:
+    Type: String
+    AllowedPattern: ^[0-9a-zA-Z-/_\.\s]*.zip$
+    Description: AWS S3 Key for the lambda deployment package zip file
+
+Resources:
+
+  # We have to build a custom resource to recover the subnets of the given instances' service ENIs
+  # AWS IAM Role/Policy for Lambda with attachment
+  ZSCCLambdaBasicExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: CustomLambdaEC2DescribePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Action:
+                  - ec2:AssignPrivateIpAddresses
+                  - ec2:CreateNetworkInterface
+                  - ec2:DeleteNetworkInterface
+                  - ec2:DescribeInstances
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeInstanceAttribute
+                  - ec2:DescribeInstanceTypes
+                  - ec2:DescribeInstanceStatus
+                  - ec2:DescribeRouteTables
+                  - ec2:ReplaceRoute
+                  - ec2:UnassignPrivateIpAddresses
+                  - lambda:InvokeFunction
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Effect: Allow
+                Resource: "*"
+  ## Create the Custom Resource that will hold the output of the Lambda execution
+  CustomServiceENIResource:
+    Type: 'AWS::CloudFormation::CustomResource'
+    Properties:
+      ServiceToken: !GetAtt
+        - CustomFunction
+        - Arn
+      ResourceRef: 
+        - !Ref Ec2InstanceOne
+        - !Ref Ec2InstanceTwo
+  ## Create the one time lambda that will retrieve the Subnet Data
+  CustomFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Handler: index.lambda_handler
+      Description: Retrieves EC2 Service ENI Properties
+      Timeout: 30
+      Role: !GetAtt
+        - ZSCCLambdaBasicExecutionRole
+        - Arn
+      Runtime: python3.7
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import cfnresponse
+          import boto3
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          # ONE TIME INITS
+          EC2_RESOURCE = boto3.resource('ec2')
+
+
+          def lambda_handler(event, context):
+            logger.info('got event {}'.format(event))
+            try:
+              responseData = {}
+              if event['RequestType'] == 'Delete':
+                logger.info('Incoming RequestType: Delete operation')
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              if event['RequestType'] in ["Create", "Update"]:
+                ResourceRef=event['ResourceProperties']['ResourceRef']
+                responseData = {}
+                SubnetIds = []
+                for instance_id in ResourceRef:
+                  instance = EC2_RESOURCE.Instance(instance_id)
+                  eni = [e for e in
+                   instance.network_interfaces_attribute if e.get(
+            "Attachment").get("DeviceIndex") == 1][0]
+                  SubnetIds.append(eni.get("SubnetId"))
+                  responseData["VPCID"] = eni.get("VpcId")
+                responseData['SubnetIds']= SubnetIds
+                logger.info('Retrieved ENI Properties!')
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+              else:
+                logger.info('Unexpected RequestType!')
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+            except Exception as err:
+              logger.error(err)
+              responseData = {"Data": str(err)}
+              cfnresponse.send(event,context,cfnresponse.FAILED,responseData)
+            return
+  # Lambda NSG to access CC instances' Http Probe Port
+  LambdaToHttpProbeSecurityGroup:
+    Description: Allow Lambda to perform HttpProbe
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      VpcId: !GetAtt
+          - CustomServiceENIResource
+          - VPCID
+      GroupDescription: Allow Lambda to access CC nodes to perform HttpProbes
+      SecurityGroupEgress:
+        - IpProtocol: 'TCP'
+          FromPort: !Ref Ec2InstanceOneHttpProbePort
+          ToPort: !Ref Ec2InstanceOneHttpProbePort
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: 'TCP'
+          FromPort: !Ref Ec2InstanceTwoHttpProbePort
+          ToPort: !Ref Ec2InstanceTwoHttpProbePort
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: 'TCP'
+          FromPort: '443'
+          ToPort: '443'
+          CidrIp: 0.0.0.0/0
+  # Create AWS Lambda for Route Updater
+  RouteUpdaterFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Handler: rte_updater_lambda.lambda_handler
+      Description: Updates Routes to point to another active ZS CC when an active goes down
+      Timeout: 60
+      VpcConfig:
+        SubnetIds: !GetAtt
+          - CustomServiceENIResource
+          - SubnetIds
+        SecurityGroupIds:
+          - !Ref LambdaToHttpProbeSecurityGroup
+      Role: !GetAtt
+        - ZSCCLambdaBasicExecutionRole
+        - Arn
+      Runtime: python3.7
+      Environment:
+        Variables:
+          ENVIRONS: !Sub
+            - '{
+                  "INSTANCES": "${instances}",
+                  "${InstanceOne}": {
+                        "RouteTables": "${RouteTablesOne}",
+                        "HttpProbePort": "${HttpProbePortOne}"
+                  },
+                  "${InstanceTwo}": {
+                        "RouteTables": "${RouteTablesTwo}",
+                        "HttpProbePort": "${HttpProbePortTwo}"
+                  }
+                }'
+            - instances: !Sub "${Ec2InstanceOne},${Ec2InstanceTwo}"
+              InstanceOne: !Ref Ec2InstanceOne
+              HttpProbePortOne: !Ref Ec2InstanceOneHttpProbePort
+              RouteTablesOne: !Join [",", !Ref Ec2InstanceOneRouteTables]
+              InstanceTwo: !Ref Ec2InstanceTwo
+              HttpProbePortTwo: !Ref Ec2InstanceTwoHttpProbePort
+              RouteTablesTwo: !Join [",", !Ref Ec2InstanceTwoRouteTables]
+          ROUTE_CHANGE_STRATEGY: distribute_routes_equally
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: !Ref S3Key
+  # State Change event rule and Lambda permission
+  StateChangeEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "Zscaler EC2 instance state change EventRule"
+      EventPattern:
+        source:
+          - "aws.ec2"
+        detail-type:
+          - "EC2 Instance State-change Notification"
+        detail:
+          state:
+            - "stopping"
+            - "shutting-down"
+            - "stopped"
+            - "terminated"
+          instance-id:
+            - !Ref Ec2InstanceOne
+            - !Ref Ec2InstanceTwo
+      State: "ENABLED"
+      Targets:
+        - Arn:
+            Fn::GetAtt:
+              - RouteUpdaterFunction
+              - Arn
+          Id: "TargetFunctionV1"
+  PermissionForStateChangeEventRuleToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: RouteUpdaterFunction
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn:
+        Fn::GetAtt:
+          - StateChangeEventRule
+          - Arn
+  # Scheduled Rule and lambda permission
+  ScheduledRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "Zscaler EC2 instance state change ScheduledRule"
+      ScheduleExpression: "rate(1 minute)"
+      State: "ENABLED"
+      Targets:
+        - Arn:
+            Fn::GetAtt:
+              - RouteUpdaterFunction
+              - Arn
+          Id: "TargetFunctionV1"
+  PermissionForScheduledRuleToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: RouteUpdaterFunction
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn:
+        Fn::GetAtt:
+          - ScheduledRule
+          - Arn
+Outputs:
+  Ec2InstanceOne:
+    Description: ZS CC Instance One
+    Value: !Ref Ec2InstanceOne
+    Export:
+      Name: !Sub '${AWS::StackName}-Ec2InstanceOne'
+  Ec2InstanceTwo:
+    Description: ZS CC Instance Two
+    Value: !Ref Ec2InstanceTwo
+    Export:
+      Name: !Sub '${AWS::StackName}-Ec2InstanceTwo'
+  CloudConnectorTemplateVersion:
+    Description: Cloud Connector Template Version
+    Value: 2021.10.7      

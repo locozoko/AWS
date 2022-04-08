@@ -1,0 +1,335 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Zscaler Cloud Connector
+Metadata:
+  LICENSE: 'Apache License, Version 2.0'
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Network configuration
+        Parameters:
+          - VPCID
+          - AvailabilityZone
+          - CCSubnetID
+      - Label:
+          default: Zscaler Cloud Connector configuration
+        Parameters:
+          - ZscalerOSAMI
+          - KeyPairName
+          - InstanceType
+          - CloudConnectorProvUrl
+          - SecretManagerSecretName
+          - HttpProbePort
+    ParameterLabels:
+      InstanceType:
+        default: Zscaler Cloud Connector instance type
+      KeyPairName:
+        default: Zscaler Cloud Connector instance key pair
+      ZscalerOSAMI:
+        default: Zscaler product
+      VPCID:
+        default: VPC ID
+      CCSubnetID:
+        default: Subnet ID of Zscaler Cloud Connector
+      CloudConnectorProvUrl:
+        default: Cloud Connector Provisioning URL
+      SecretManagerSecretName:
+        default: Secrets Manager Secret Name (Optional)
+      HttpProbePort:
+        default: HTTP Monitor Probe Port (Optional)
+  cfn-lint:
+    config:
+      ignore_checks:
+        - E9007
+Parameters:
+  InstanceType:
+    AllowedValues:
+      - t2.medium
+      - t3.medium
+      - c5.large
+      - c5a.large
+      - m5.large
+    Default: t3.medium
+    Description: Amazon EC2 instance type for the ZS instances.
+    Type: String
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 Instance Access KeyPair
+  VPCID:
+    Description: 'ID of the VPC (e.g., vpc-0343606e).'
+    Type: 'AWS::EC2::VPC::Id'
+  AvailabilityZone:
+    Description: Availability Zone of the subnets
+    Type: 'AWS::EC2::AvailabilityZone::Name'
+  CCSubnetID:
+    Description: ID of the Zscaler CC Subnet
+    Type: 'AWS::EC2::Subnet::Id'
+  CloudConnectorProvUrl:
+    AllowedPattern: '(admin|connector).zs.*.net(/ec)?/w?api/v1/provUrl\?name=[\w-_]+'
+    ConstraintDescription: >-
+      Please input the Cloud Connector Provisioning Template URL to use from
+      your Zscaler Cloud Connector Portal
+    Description: Cloud Connector Prov URL
+    Type: String
+  SecretManagerSecretName:
+    Type: String
+    Default: 'ZS/CC/credentials'
+    Description: >-
+      Secret Manager Secret Name, defaults to ZS/CC/credentials
+  HttpProbePort:
+    Type: String
+    AllowedPattern: '^$|^(80|102[4-9]|10[3-9]\d|1[1-9]\d{2}|[2-9]\d{3}|[1-5]\d{4}|6[0-4]\d{3}|65[0-4]\d{2}|655[0-2]\d|6553[0-5])$'
+    ConstraintDescription: >-
+      When specified, the HTTP probe port's allowed values are [80, 1024-65535]
+    Description: HTTP Monitor probe port to listen on for monitoring probes
+Conditions:
+  SecretsManagerNameNotEmpty: !Not [!Equals [!Ref SecretManagerSecretName, '']]
+  HttpProbePortNotEmpty: !Not [!Equals [!Ref HttpProbePort, '']]
+Rules:
+  SubnetsInVPC:
+    Assertions:
+      - Assert:
+          'Fn::EachMemberEquals':
+            - 'Fn::ValueOfAll':
+                - 'AWS::EC2::Subnet::Id'
+                - VpcId
+            - !Ref VPCID
+        AssertDescription: All subnets must exist in the selected VPC
+      - Assert:
+          'Fn::EachMemberEquals':
+            - 'Fn::ValueOfAll':
+                - 'AWS::EC2::Subnet::Id'
+                - AvailabilityZone
+            - !Ref AvailabilityZone
+        AssertDescription: All subnets must exist in the selected AvailabilityZone
+  CCProvUrlNotEmpty:
+    Assertions:
+      - Assert: !Not
+          - !Equals
+            - !Ref CloudConnectorProvUrl
+            - ''
+    AssertionDescription: Cloud Connector Provisioning URL cannot be empty!
+Mappings:
+  Product2Code:
+    CloudConnector:
+      Code: 2l8tfysndbav4tv2nfjwak3cu
+Resources:
+  MgmtSecurityGroup:
+    Description: Create Mgmt Security Group
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      VpcId: !Ref VPCID
+      GroupDescription: Enable intra cloud comm
+      SecurityGroupIngress:
+        - IpProtocol: TCP
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: 0.0.0.0/0
+  ServiceSecurityGroup:
+    Description: Create Service Security Group
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      VpcId: !Ref VPCID
+      GroupDescription: Enable intra cloud comm
+      SecurityGroupIngress:
+        - IpProtocol: '-1'
+          FromPort: '0'
+          ToPort: '65535'
+          CidrIp: 0.0.0.0/0
+  ServiceXface:
+    Type: 'AWS::EC2::NetworkInterface'
+    Properties:
+      SubnetId: !Ref CCSubnetID
+      SecondaryPrivateIpAddressCount: 1
+      Description: Interface for service traffic
+      GroupSet:
+        - !Ref ServiceSecurityGroup
+      SourceDestCheck: 'false'
+      Tags:
+        - Key: Network
+          Value: !Sub '${AWS::StackName}-Service'
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-CloudConnectorSrvcIF'
+  SecretManagerIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      Description: ZS Cloud Connector VM IAM Role for Secrets Manager
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+          - PolicyName: CustomLambdaEC2DescribePolicy
+            PolicyDocument:
+              Version: 2012-10-17
+              Statement:
+                - Effect: Allow
+                  Resource: !GetAtt
+                    - CustomRetrieveAWSResources
+                    - SecretArn
+                  Action:
+                    - 'secretsmanager:GetSecretValue'
+      ManagedPolicyArns:
+        # - 'arn:aws:iam::aws:policy/SecretsManagerReadWrite'
+        # SSM policy Commented out for non-poc deployments
+        - 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
+  CCHostProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Roles:
+        - !Ref SecretManagerIAMRole
+  LambdaBasicExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: CustomLambdaEC2DescribePolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: 'arn:aws:logs:*:*:*'
+              - Effect: Allow
+                Action:
+                  - 'ec2:DescribeImages'
+                  - 'secretsmanager:ListSecrets'
+                  - 'secretsmanager:GetSecretValue'
+                Resource: '*'
+  CustomRetrieveAWSResources:
+    Type: 'AWS::CloudFormation::CustomResource'
+    Properties:
+      ServiceToken: !GetAtt
+        - CustomFunction
+        - Arn
+      ImageCode: !FindInMap [Product2Code, CloudConnector, Code]
+      SecretManagerSecretName: !If [SecretsManagerNameNotEmpty, !Ref SecretManagerSecretName, 'ZS/CC/Credentials']
+  CustomFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Handler: index.lambda_handler
+      Description: Retrieves Latest AMI in the Region for given Zscaler OS
+      Timeout: 30
+      Role: !GetAtt
+        - LambdaBasicExecutionRole
+        - Arn
+      Runtime: python3.7
+      Code:
+        ZipFile: |
+          import logging
+          import cfnresponse
+          import boto3
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def lambda_handler(event, context):
+            logger.info('got event {}'.format(event))
+            try:
+              responseData = {}
+              if event['RequestType'] == 'Delete':
+                logger.info('Incoming RequestType: Delete operation')
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              if event['RequestType'] in ["Create", "Update"]:
+                ImageCode=event['ResourceProperties']['ImageCode']
+                SecretManagerSecretName = event['ResourceProperties']['SecretManagerSecretName']
+                client = boto3.client('ec2')
+                filters = [{"Name": "product-code", "Values":[ImageCode]}]
+                response = sorted(client.describe_images(Owners=["aws-marketplace"], Filters=filters).get("Images"), key=lambda x:  x.get("CreationDate"))
+                secretsmanager_client = boto3.client('secretsmanager')
+                secret = secretsmanager_client.get_secret_value(SecretId=SecretManagerSecretName)
+                responseData = {}
+                responseData['ImageId']= response[-1].get('ImageId')
+                responseData['SecretArn'] = secret.get('ARN')
+                logger.info('Retrieved AMI {0}'.format(responseData.get('ImageId')))
+                logger.info('Retrieved Secret ARN {0}'.format(responseData.get('SecretArn')))
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+              else:
+                logger.info('Unexpected RequestType!')
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+            except Exception as err:
+              logger.error(err)
+              responseData = {"Data": str(err)}
+              cfnresponse.send(event,context,cfnresponse.FAILED,responseData)
+            return
+
+  Ec2Instance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      ImageId: !GetAtt
+        - CustomRetrieveAWSResources
+        - ImageId
+      KeyName: !Ref KeyPairName
+      AvailabilityZone: !Ref AvailabilityZone
+      SubnetId: !Ref CCSubnetID
+      SecurityGroupIds:
+        - !Ref MgmtSecurityGroup
+      IamInstanceProfile: !Ref CCHostProfile
+      InstanceType: !Ref InstanceType
+      Tags:
+        - Key: Role
+          Value: !Sub '${AWS::StackName}-ZSCCInstance'
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-CloudConnector'
+      UserData: !Base64
+        'Fn::Join':
+          - |+
+
+          - - '[ZSCALER]'
+            - !Join
+              - =
+              - - CC_URL
+                - !Ref CloudConnectorProvUrl
+            - !Join
+              - =
+              - - SECRET_NAME
+                - !If [SecretsManagerNameNotEmpty, !Ref SecretManagerSecretName, 'ZS/CC/Credentials']
+            - !Join
+              - =
+              - - HTTP_PROBE_PORT
+                - !If [HttpProbePortNotEmpty, !Ref HttpProbePort, '']
+
+  SrvcNetworkInterfaceAttachment:
+    Type: 'AWS::EC2::NetworkInterfaceAttachment'
+    Properties:
+      InstanceId:
+        Ref: Ec2Instance
+      NetworkInterfaceId:
+        Ref: ServiceXface
+      DeviceIndex: 1
+      DeleteOnTermination: false
+Outputs:
+  MgmtPrivateIP:
+    Description: Zscaler Cloud Connector Instance Mgmt Private IP
+    Value: !GetAtt
+      - Ec2Instance
+      - PrivateIp
+    Export:
+      Name: !Sub '${AWS::StackName}-MgmtPrivateIP'
+  ServiceEni:
+    Description: Zscaler Cloud Connector Instance Service Eni
+    Value: !Ref ServiceXface
+    Export:
+      Name: !Sub '${AWS::StackName}-ServiceEni'
+  ImageIdInUse:
+    Description: AMI ID In use in the Zscaler Cloud Connector VM
+    Value: !GetAtt
+      - "CustomRetrieveAWSResources"
+      - ImageId
+  CloudConnectorTemplateVersion:
+    Description: Cloud Connector Template Version
+    Value: 2021.12.3
